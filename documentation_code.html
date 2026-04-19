@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Hotel Reservation System - Source Code</title>
+<style>
+body { font-family: Arial, sans-serif; margin: 30px; background: white; }
+h1 { font-size: 18pt; }
+h2 { font-size: 14pt; margin-top: 30px; margin-bottom: 5px; }
+p { font-size: 11pt; }
+pre.code-block {
+    display: none; 
+}
+</style>
+</head>
+<body>
+
+<h1>3. Source Code</h1>
+<p>Below are the main Java files. (Formatted perfectly for MS Word with LIGHT theme, Colors, Cambria Font, and Aligned Numbers, NO BACKGROUND)</p>
+
+<h2>MainFrame.java</h2>
+<pre class="code-block" data-lang="java">
+package hotelmanagementsystem;
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.*;
+public class MainFrame extends JFrame implements ActionListener {
+    JButton btnAddRoom, btnCheckAvail, btnMakeRes, btnConfirmRes;
+    JButton btnCheckout, btnLastCheckout, btnExit;
+    HotelSystem hotel;
+    JLabel statusLabel;
+    MainFrame() {
+        hotel = new HotelSystem();
+        setTitle("Hotel Reservation System");
+        setSize(500, 650);
+        setLayout(null);
+        setDefaultCloseOperation(EXIT_ON_CLOSE);
+        setLocationRelativeTo(null);
+        setResizable(false);
+        getContentPane().setBackground(new Color(240, 244, 248));
+        // Title
+        JLabel titleLabel = new JLabel("Hotel Reservation System", JLabel.CENTER);
+        titleLabel.setFont(new Font("Arial", Font.BOLD, 24));
+        titleLabel.setForeground(new Color(30, 60, 114));
+        titleLabel.setBounds(50, 25, 400, 35);
+        add(titleLabel);
+        JLabel subLabel = new JLabel("Java Swing + Oracle JDBC", JLabel.CENTER);
+        subLabel.setFont(new Font("Arial", Font.PLAIN, 13));
+        subLabel.setForeground(new Color(120, 120, 120));
+        subLabel.setBounds(50, 58, 400, 20);
+        add(subLabel);
+        // Buttons
+        btnAddRoom = makeButton("Add Room", 100);
+        btnCheckAvail = makeButton("Check Availability", 155);
+        btnMakeRes = makeButton("Make Reservation", 210);
+        btnConfirmRes = makeButton("Confirm Reservation", 265);
+        btnCheckout = makeButton("Checkout", 320);
+        btnLastCheckout = makeButton("View Last Checkout", 375);
+        btnExit = makeButton("Exit", 440);
+        btnExit.setBackground(new Color(192, 57, 43));
+        // Status bar at the bottom
+        statusLabel = new JLabel("Ready", JLabel.CENTER);
+        statusLabel.setBounds(20, 500, 450, 50);
+        statusLabel.setFont(new Font("Arial", Font.PLAIN, 12));
+        statusLabel.setForeground(new Color(80, 80, 80));
+        statusLabel.setOpaque(true);
+        statusLabel.setBackground(new Color(230, 234, 238));
+        add(statusLabel);
+        updateStatus("System ready. Total rooms in session: " + Room.getTotalRooms());
+        setVisible(true);
+    }
+    // helper to create buttons
+    JButton makeButton(String text, int yPos) {
+        JButton btn = new JButton(text);
+        btn.setBounds(140, yPos, 220, 42);
+        btn.setFont(new Font("Arial", Font.BOLD, 13));
+        btn.setBackground(new Color(41, 128, 185));
+        btn.setForeground(Color.WHITE);
+        btn.setFocusPainted(false);
+        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        btn.addActionListener(this);
+        add(btn);
+        return btn;
+    }
+    // helper to update status bar
+    void updateStatus(String msg) {
+        statusLabel.setText("<html><center>" + msg + "</center></html>");
+    }
+    public void actionPerformed(ActionEvent e) {
+        if (e.getSource() == btnAddRoom) {
+            new AddRoom(hotel, this);
+        } else if (e.getSource() == btnCheckAvail) {
+            new CheckAvailability(hotel, this);
+        } else if (e.getSource() == btnMakeRes) {
+            new MakeReservation(hotel, this);
+        } else if (e.getSource() == btnConfirmRes) {
+            new ConfirmReservation(hotel, this);
+        } else if (e.getSource() == btnCheckout) {
+            new Checkout(hotel, this);
+        } else if (e.getSource() == btnLastCheckout) {
+            new ViewLastCheckout(hotel, this);
+        } else if (e.getSource() == btnExit) {
+            int confirm = JOptionPane.showConfirmDialog(this,
+                "Are you sure you want to exit?", "Exit", JOptionPane.YES_NO_OPTION);
+            if (confirm == JOptionPane.YES_OPTION) {
+                DBConnection.closeConnection();
+                System.exit(0);
+            }
+        }
+    }
+    // Main method
+    public static void main(String[] args) {
+        new MainFrame();
+    }
+}
+</pre>
+
+<h2>HotelSystem.java</h2>
+<pre class="code-block" data-lang="java">
+package hotelmanagementsystem;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.util.Calendar;
+import java.util.Hashtable;
+import java.util.LinkedList;
+import java.util.Queue;
+import java.util.Stack;
+public class HotelSystem {
+    // Collections
+    Hashtable<Integer, Room> roomInventory;
+    Queue<Reservation> reservationQueue;
+    Stack<String> checkoutLog;
+    public HotelSystem() {
+        roomInventory = new Hashtable<>();
+        reservationQueue = new LinkedList<>();
+        checkoutLog = new Stack<>();
+    }
+    // 1. Add Room - stores in Hashtable and inserts into database
+    public void addRoom(Room room) {
+        roomInventory.put(room.getRoomId(), room);
+        try {
+            Connection con = DBConnection.getConnection();
+            PreparedStatement ps = con.prepareStatement(
+                "INSERT INTO rooms VALUES (?, ?, ?)");
+            ps.setInt(1, room.getRoomId());
+            ps.setString(2, room.getRoomType().toString());
+            ps.setDouble(3, room.getPricePerNight());
+            ps.executeUpdate();
+            ps.close();
+        } catch (Exception e) {
+            System.out.println("Error inserting room: " + e.getMessage());
+        }
+    }
+    // 2. Check Availability - checks Hashtable and database
+    public String checkAvailability(int roomId) {
+        // check in Hashtable first
+        Room room = roomInventory.get(roomId);
+        if (room != null) {
+            // check if reserved
+            boolean reserved = false;
+            try {
+                Connection con = DBConnection.getConnection();
+                PreparedStatement ps = con.prepareStatement(
+                    "SELECT reservation_id FROM reservations WHERE room_id = ?");
+                ps.setInt(1, roomId);
+                ResultSet rs = ps.executeQuery();
+                if (rs.next()) {
+                    reserved = true;
+                }
+                rs.close();
+                ps.close();
+            } catch (Exception e) {
+                System.out.println("Error: " + e.getMessage());
+            }
+            if (reserved) {
+                return "Room " + roomId + " is RESERVED.\n" + room;
+            } else {
+                return "Room " + roomId + " is AVAILABLE.\n" + room;
+            }
+        }
+        // if not in Hashtable, try database
+        try {
+            Connection con = DBConnection.getConnection();
+            PreparedStatement ps = con.prepareStatement(
+                "SELECT * FROM rooms WHERE room_id = ?");
+            ps.setInt(1, roomId);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) {
+                String type = rs.getString("room_type");
+                double price = rs.getDouble("price_per_night");
+                rs.close();
+                ps.close();
+                return "Room " + roomId + " found in database.\nType: " + type + " | Price: Rs." + price;
+            }
+            rs.close();
+            ps.close();
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+        }
+        return "Room " + roomId + " does NOT exist.";
+    }
+    // 3. Queue Reservation - adds to Queue and inserts into database
+    public void queueReservation(Reservation res) {
+        reservationQueue.offer(res);
+        try {
+            Connection con = DBConnection.getConnection();
+            PreparedStatement ps = con.prepareStatement(
+                "INSERT INTO reservations VALUES (?, ?, ?, ?, ?)");
+            ps.setInt(1, res.getReservationId());
+            ps.setInt(2, res.getGuestId());
+            ps.setInt(3, res.getRoomId());
+            ps.setDate(4, new java.sql.Date(res.getCheckIn().getTimeInMillis()));
+            ps.setDate(5, new java.sql.Date(res.getCheckOut().getTimeInMillis()));
+            ps.executeUpdate();
+            ps.close();
+        } catch (Exception e) {
+            System.out.println("Error inserting reservation: " + e.getMessage());
+        }
+    }
+    // 4. Confirm Next Reservation - uses Queue.poll()
+    public String confirmNextReservation() {
+        Reservation res = reservationQueue.poll();
+        if (res != null) {
+            return "Reservation Confirmed!\n" + res;
+        }
+        return "No pending reservations in queue.";
+    }
+    // 5. Checkout - pushes to Stack
+    public void checkout(int guestId) {
+        String log = "Guest ID: " + guestId + " | Checked out at: " + new java.util.Date();
+        checkoutLog.push(log);
+    }
+    // 6. Get Last Checkout - uses Stack.peek()
+    public String getLastCheckout() {
+        if (!checkoutLog.isEmpty()) {
+            return checkoutLog.peek();
+        }
+        return "No checkout records found.";
+    }
+    // 7. Calculate Total Cost - uses Calendar difference
+    public double calculateTotalCost(Calendar checkIn, Calendar checkOut, double pricePerNight) {
+        long diffMillis = checkOut.getTimeInMillis() - checkIn.getTimeInMillis();
+        int days = (int) (diffMillis / (1000 * 60 * 60 * 24));
+        if (days <= 0) {
+            return 0;
+        }
+        return days * pricePerNight;
+    }
+    // Insert guest into database
+    public void insertGuest(Guest guest) {
+        try {
+            Connection con = DBConnection.getConnection();
+            PreparedStatement ps = con.prepareStatement(
+                "INSERT INTO guests VALUES (?, ?, ?)");
+            ps.setInt(1, guest.getGuestId());
+            ps.setString(2, guest.getName());
+            ps.setString(3, guest.getContactNo());
+            ps.executeUpdate();
+            ps.close();
+        } catch (Exception e) {
+            System.out.println("Guest may already exist: " + e.getMessage());
+        }
+    }
+    // Get room price from Hashtable
+    public double getRoomPrice(int roomId) {
+        Room room = roomInventory.get(roomId);
+        if (room != null) {
+            return room.getPricePerNight();
+        }
+        return 0;
+    }
+}
+</pre>
+
+<h2>DBConnection.java</h2>
+<pre class="code-block" data-lang="java">
+package hotelmanagementsystem;
+import java.sql.Connection;
+import java.sql.DriverManager;
+public class DBConnection {
+    static Connection con = null;
+    public static Connection getConnection() {
+        try {
+            if (con == null || con.isClosed()) {
+                Class.forName("oracle.jdbc.driver.OracleDriver");
+                con = DriverManager.getConnection(
+                    "jdbc:oracle:thin:@localhost:1521/XEPDB1",
+                    "java_project",
+                    "aravind45"
+                );
+                System.out.println("Database connected successfully");
+            }
+        } catch (Exception e) {
+            System.out.println("Connection failed: " + e.getMessage());
+        }
+        return con;
+    }
+    public static void closeConnection() {
+        try {
+            if (con != null && !con.isClosed()) {
+                con.close();
+                System.out.println("Connection closed");
+            }
+        } catch (Exception e) {
+            System.out.println("Error closing: " + e.getMessage());
+        }
+    }
+}
+</pre>
+
+<h2>AddRoom.java</h2>
+<pre class="code-block" data-lang="java">
+package hotelmanagementsystem;
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.*;
+public class AddRoom extends JFrame implements ActionListener {
+    JTextField t1, t3;
+    JComboBox<String> combo;
+    JLabel resultLabel;
+    HotelSystem hotel;
+    MainFrame mainFrame;
+    public AddRoom(HotelSystem hotel, MainFrame mainFrame) {
+        this.hotel = hotel;
+        this.mainFrame = mainFrame;
+        setTitle("Add Room");
+        setSize(430, 340);
+        setLayout(null);
+        setLocationRelativeTo(mainFrame);
+        setResizable(false);
+        getContentPane().setBackground(new Color(245, 248, 250));
+        JLabel heading = new JLabel("Add New Room", JLabel.CENTER);
+        heading.setFont(new Font("Arial", Font.BOLD, 16));
+        heading.setForeground(new Color(30, 60, 114));
+        heading.setBounds(30, 10, 360, 25);
+        add(heading);
+        JLabel l1 = new JLabel("Room ID:");
+        l1.setBounds(30, 50, 120, 25);
+        add(l1);
+        t1 = new JTextField();
+        t1.setBounds(160, 50, 210, 25);
+        add(t1);
+        JLabel l2 = new JLabel("Room Type:");
+        l2.setBounds(30, 90, 120, 25);
+        add(l2);
+        String[] types = {"STANDARD", "DELUXE", "SUITE", "PENTHOUSE"};
+        combo = new JComboBox<>(types);
+        combo.setBounds(160, 90, 210, 25);
+        add(combo);
+        JLabel l3 = new JLabel("Price (Rs.):");
+        l3.setBounds(30, 130, 130, 25);
+        add(l3);
+        t3 = new JTextField();
+        t3.setBounds(160, 130, 210, 25);
+        add(t3);
+        JButton btnAdd = new JButton("Add Room");
+        btnAdd.setBounds(145, 180, 140, 35);
+        btnAdd.setBackground(new Color(39, 174, 96));
+        btnAdd.setForeground(Color.WHITE);
+        btnAdd.setFocusPainted(false);
+        btnAdd.addActionListener(this);
+        add(btnAdd);
+        resultLabel = new JLabel("", JLabel.CENTER);
+        resultLabel.setBounds(20, 230, 380, 50);
+        resultLabel.setFont(new Font("Arial", Font.BOLD, 12));
+        add(resultLabel);
+        setVisible(true);
+    }
+    public void actionPerformed(ActionEvent ae) {
+        if (t1.getText().trim().isEmpty() || t3.getText().trim().isEmpty()) {
+            resultLabel.setForeground(Color.RED);
+            resultLabel.setText("Please fill all fields!");
+            return;
+        }
+        try {
+            int id = Integer.parseInt(t1.getText().trim());
+            double price = Double.parseDouble(t3.getText().trim());
+            if (price <= 0) {
+                resultLabel.setForeground(Color.RED);
+                resultLabel.setText("Price must be greater than 0!");
+                return;
+            }
+            String type = combo.getSelectedItem().toString();
+            RoomType rt = RoomType.valueOf(type);
+            Room room = new Room(id, rt, price);
+            hotel.addRoom(room);
+            resultLabel.setForeground(new Color(39, 174, 96));
+            resultLabel.setText("<html>Room added successfully!<br>Total Rooms: " + Room.getTotalRooms() + "</html>");
+            mainFrame.updateStatus("Room " + id + " added. Total rooms: " + Room.getTotalRooms());
+            t1.setText("");
+            t3.setText("");
+        } catch (NumberFormatException ex) {
+            resultLabel.setForeground(Color.RED);
+            resultLabel.setText("Please enter valid numeric values!");
+        } catch (Exception ex) {
+            resultLabel.setForeground(Color.RED);
+            resultLabel.setText("Error: " + ex.getMessage());
+        }
+    }
+}
+</pre>
+
+<h2>CheckAvailability.java</h2>
+<pre class="code-block" data-lang="java">
+package hotelmanagementsystem;
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.*;
+public class CheckAvailability extends JFrame implements ActionListener {
+    JTextField t1;
+    JTextArea resultArea;
+    HotelSystem hotel;
+    MainFrame mainFrame;
+    public CheckAvailability(HotelSystem hotel, MainFrame mainFrame) {
+        this.hotel = hotel;
+        this.mainFrame = mainFrame;
+        setTitle("Check Availability");
+        setSize(430, 300);
+        setLayout(null);
+        setLocationRelativeTo(mainFrame);
+        setResizable(false);
+        getContentPane().setBackground(new Color(245, 248, 250));
+        JLabel heading = new JLabel("Check Room Availability", JLabel.CENTER);
+        heading.setFont(new Font("Arial", Font.BOLD, 16));
+        heading.setForeground(new Color(30, 60, 114));
+        heading.setBounds(30, 10, 360, 25);
+        add(heading);
+        JLabel l1 = new JLabel("Enter Room ID:");
+        l1.setBounds(30, 50, 120, 25);
+        add(l1);
+        t1 = new JTextField();
+        t1.setBounds(160, 50, 210, 25);
+        add(t1);
+        JButton btnCheck = new JButton("Check");
+        btnCheck.setBounds(160, 90, 120, 35);
+        btnCheck.setBackground(new Color(41, 128, 185));
+        btnCheck.setForeground(Color.WHITE);
+        btnCheck.setFocusPainted(false);
+        btnCheck.addActionListener(this);
+        add(btnCheck);
+        resultArea = new JTextArea("Result will appear here...");
+        resultArea.setBounds(30, 140, 360, 100);
+        resultArea.setEditable(false);
+        resultArea.setFocusable(false);
+        resultArea.setFont(new Font("Arial", Font.PLAIN, 13));
+        resultArea.setBackground(new Color(236, 240, 241));
+        resultArea.setLineWrap(true);
+        resultArea.setWrapStyleWord(true);
+        add(resultArea);
+        setVisible(true);
+    }
+    public void actionPerformed(ActionEvent ae) {
+        if (t1.getText().trim().isEmpty()) {
+            resultArea.setText("Please enter a Room ID!");
+            return;
+        }
+        try {
+            int roomId = Integer.parseInt(t1.getText().trim());
+            String result = hotel.checkAvailability(roomId);
+            resultArea.setText(result);
+            mainFrame.updateStatus("Checked availability for Room " + roomId);
+        } catch (NumberFormatException ex) {
+            resultArea.setText("Invalid input! Please enter a numeric Room ID.");
+        } catch (Exception ex) {
+            resultArea.setText("Error: " + ex.getMessage());
+        }
+    }
+}
+</pre>
+
+<h2>MakeReservation.java</h2>
+<pre class="code-block" data-lang="java">
+package hotelmanagementsystem;
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.*;
+import java.util.Calendar;
+public class MakeReservation extends JFrame implements ActionListener {
+    JTextField tGuestId, tName, tContact, tResId, tRoomId, tCheckIn, tCheckOut;
+    JTextArea resultArea;
+    HotelSystem hotel;
+    MainFrame mainFrame;
+    public MakeReservation(HotelSystem hotel, MainFrame mainFrame) {
+        this.hotel = hotel;
+        this.mainFrame = mainFrame;
+        setTitle("Make Reservation");
+        setSize(470, 560);
+        setLayout(null);
+        setLocationRelativeTo(mainFrame);
+        setResizable(false);
+        getContentPane().setBackground(new Color(245, 248, 250));
+        // Guest details section
+        JLabel header1 = new JLabel("--- Guest Details ---");
+        header1.setFont(new Font("Arial", Font.BOLD, 13));
+        header1.setForeground(new Color(30, 60, 114));
+        header1.setBounds(30, 15, 200, 20);
+        add(header1);
+        JLabel l1 = new JLabel("Guest ID:");
+        l1.setBounds(30, 45, 130, 25);
+        add(l1);
+        tGuestId = new JTextField();
+        tGuestId.setBounds(170, 45, 240, 25);
+        add(tGuestId);
+        JLabel l2 = new JLabel("Guest Name:");
+        l2.setBounds(30, 80, 130, 25);
+        add(l2);
+        tName = new JTextField();
+        tName.setBounds(170, 80, 240, 25);
+        add(tName);
+        JLabel l3 = new JLabel("Contact No:");
+        l3.setBounds(30, 115, 130, 25);
+        add(l3);
+        tContact = new JTextField();
+        tContact.setBounds(170, 115, 240, 25);
+        add(tContact);
+        // Reservation details section
+        JLabel header2 = new JLabel("--- Reservation Details ---");
+        header2.setFont(new Font("Arial", Font.BOLD, 13));
+        header2.setForeground(new Color(30, 60, 114));
+        header2.setBounds(30, 155, 250, 20);
+        add(header2);
+        JLabel l4 = new JLabel("Reservation ID:");
+        l4.setBounds(30, 185, 130, 25);
+        add(l4);
+        tResId = new JTextField();
+        tResId.setBounds(170, 185, 240, 25);
+        add(tResId);
+        JLabel l5 = new JLabel("Room ID:");
+        l5.setBounds(30, 220, 130, 25);
+        add(l5);
+        tRoomId = new JTextField();
+        tRoomId.setBounds(170, 220, 240, 25);
+        add(tRoomId);
+        JLabel l6 = new JLabel("Check-In (dd/mm/yyyy):");
+        l6.setBounds(30, 255, 140, 25);
+        add(l6);
+        tCheckIn = new JTextField();
+        tCheckIn.setBounds(170, 255, 240, 25);
+        add(tCheckIn);
+        JLabel l7 = new JLabel("Check-Out (dd/mm/yyyy):");
+        l7.setBounds(30, 290, 145, 25);
+        add(l7);
+        tCheckOut = new JTextField();
+        tCheckOut.setBounds(170, 290, 240, 25);
+        add(tCheckOut);
+        JButton btnSubmit = new JButton("Make Reservation");
+        btnSubmit.setBounds(155, 335, 160, 38);
+        btnSubmit.setBackground(new Color(39, 174, 96));
+        btnSubmit.setForeground(Color.WHITE);
+        btnSubmit.setFocusPainted(false);
+        btnSubmit.addActionListener(this);
+        add(btnSubmit);
+        resultArea = new JTextArea("Reservation details will appear here...");
+        resultArea.setBounds(30, 390, 400, 110);
+        resultArea.setEditable(false);
+        resultArea.setFocusable(false);
+        resultArea.setFont(new Font("Arial", Font.PLAIN, 12));
+        resultArea.setBackground(new Color(236, 240, 241));
+        resultArea.setLineWrap(true);
+        resultArea.setWrapStyleWord(true);
+        add(resultArea);
+        setVisible(true);
+    }
+    public void actionPerformed(ActionEvent ae) {
+        // validate all fields
+        if (tGuestId.getText().trim().isEmpty() || tName.getText().trim().isEmpty()
+            || tContact.getText().trim().isEmpty() || tResId.getText().trim().isEmpty()
+            || tRoomId.getText().trim().isEmpty() || tCheckIn.getText().trim().isEmpty()
+            || tCheckOut.getText().trim().isEmpty()) {
+            resultArea.setText("Error: Please fill all fields!");
+            return;
+        }
+        try {
+            int guestId = Integer.parseInt(tGuestId.getText().trim());
+            String guestName = tName.getText().trim();
+            String contact = tContact.getText().trim();
+            int resId = Integer.parseInt(tResId.getText().trim());
+            int roomId = Integer.parseInt(tRoomId.getText().trim());
+            // parse check-in date
+            String[] cinParts = tCheckIn.getText().trim().split("/");
+            if (cinParts.length != 3) {
+                resultArea.setText("Error: Check-In date must be in dd/mm/yyyy format!");
+                return;
+            }
+            Calendar checkIn = Calendar.getInstance();
+            checkIn.set(Integer.parseInt(cinParts[2]),
+                        Integer.parseInt(cinParts[1]) - 1,
+                        Integer.parseInt(cinParts[0]));
+            // parse check-out date
+            String[] coutParts = tCheckOut.getText().trim().split("/");
+            if (coutParts.length != 3) {
+                resultArea.setText("Error: Check-Out date must be in dd/mm/yyyy format!");
+                return;
+            }
+            Calendar checkOut = Calendar.getInstance();
+            checkOut.set(Integer.parseInt(coutParts[2]),
+                         Integer.parseInt(coutParts[1]) - 1,
+                         Integer.parseInt(coutParts[0]));
+            // check if checkout is after checkin
+            if (checkOut.before(checkIn) || checkOut.equals(checkIn)) {
+                resultArea.setText("Error: Check-Out date must be after Check-In date!");
+                return;
+            }
+            // insert guest
+            Guest guest = new Guest(guestId, guestName, contact);
+            hotel.insertGuest(guest);
+            // queue reservation
+            Reservation res = new Reservation(resId, guestId, roomId, checkIn, checkOut);
+            hotel.queueReservation(res);
+            // calculate cost
+            double price = hotel.getRoomPrice(roomId);
+            double totalCost = hotel.calculateTotalCost(checkIn, checkOut, price);
+            long diff = checkOut.getTimeInMillis() - checkIn.getTimeInMillis();
+            int days = (int) (diff / (1000 * 60 * 60 * 24));
+            String msg = "Reservation stored in database!\n";
+            msg += "Guest: " + guestName + " (ID: " + guestId + ")\n";
+            msg += "Room ID: " + roomId + "\n";
+            msg += "Stay Duration: " + days + " night(s)\n";
+            if (price > 0) {
+                msg += "Total Cost: Rs." + totalCost;
+            } else {
+                msg += "Note: Room not in current session inventory.";
+            }
+            resultArea.setText(msg);
+            mainFrame.updateStatus("Reservation " + resId + " created for " + guestName);
+        } catch (NumberFormatException ex) {
+            resultArea.setText("Error: Please enter valid numeric values for IDs and dates!");
+        } catch (Exception ex) {
+            resultArea.setText("Error: " + ex.getMessage());
+        }
+    }
+}
+</pre>
+
+<h2>ConfirmReservation.java</h2>
+<pre class="code-block" data-lang="java">
+package hotelmanagementsystem;
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.*;
+public class ConfirmReservation extends JFrame implements ActionListener {
+    JTextArea resultArea;
+    HotelSystem hotel;
+    MainFrame mainFrame;
+    public ConfirmReservation(HotelSystem hotel, MainFrame mainFrame) {
+        this.hotel = hotel;
+        this.mainFrame = mainFrame;
+        setTitle("Confirm Reservation");
+        setSize(430, 250);
+        setLayout(null);
+        setLocationRelativeTo(mainFrame);
+        setResizable(false);
+        getContentPane().setBackground(new Color(245, 248, 250));
+        JLabel heading = new JLabel("Confirm Next Reservation", JLabel.CENTER);
+        heading.setFont(new Font("Arial", Font.BOLD, 16));
+        heading.setForeground(new Color(30, 60, 114));
+        heading.setBounds(30, 10, 360, 25);
+        add(heading);
+        resultArea = new JTextArea("Click button to confirm next reservation from queue...");
+        resultArea.setBounds(30, 50, 360, 100);
+        resultArea.setEditable(false);
+        resultArea.setFocusable(false);
+        resultArea.setFont(new Font("Arial", Font.PLAIN, 13));
+        resultArea.setBackground(new Color(236, 240, 241));
+        resultArea.setLineWrap(true);
+        resultArea.setWrapStyleWord(true);
+        add(resultArea);
+        JButton btnConfirm = new JButton("Confirm Next");
+        btnConfirm.setBounds(145, 165, 140, 35);
+        btnConfirm.setBackground(new Color(39, 174, 96));
+        btnConfirm.setForeground(Color.WHITE);
+        btnConfirm.setFocusPainted(false);
+        btnConfirm.addActionListener(this);
+        add(btnConfirm);
+        setVisible(true);
+    }
+    public void actionPerformed(ActionEvent ae) {
+        String result = hotel.confirmNextReservation();
+        resultArea.setText(result);
+        mainFrame.updateStatus("Confirm reservation action performed");
+    }
+}
+</pre>
+
+<h2>Checkout.java</h2>
+<pre class="code-block" data-lang="java">
+package hotelmanagementsystem;
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.*;
+public class Checkout extends JFrame implements ActionListener {
+    JTextField t1;
+    JLabel resultLabel;
+    HotelSystem hotel;
+    MainFrame mainFrame;
+    public Checkout(HotelSystem hotel, MainFrame mainFrame) {
+        this.hotel = hotel;
+        this.mainFrame = mainFrame;
+        setTitle("Checkout");
+        setSize(420, 250);
+        setLayout(null);
+        setLocationRelativeTo(mainFrame);
+        setResizable(false);
+        getContentPane().setBackground(new Color(245, 248, 250));
+        JLabel heading = new JLabel("Guest Checkout", JLabel.CENTER);
+        heading.setFont(new Font("Arial", Font.BOLD, 16));
+        heading.setForeground(new Color(30, 60, 114));
+        heading.setBounds(30, 10, 350, 25);
+        add(heading);
+        JLabel l1 = new JLabel("Guest ID:");
+        l1.setBounds(30, 50, 100, 25);
+        add(l1);
+        t1 = new JTextField();
+        t1.setBounds(140, 50, 220, 25);
+        add(t1);
+        JButton btnOut = new JButton("Checkout");
+        btnOut.setBounds(140, 95, 140, 35);
+        btnOut.setBackground(new Color(231, 76, 60));
+        btnOut.setForeground(Color.WHITE);
+        btnOut.setFocusPainted(false);
+        btnOut.addActionListener(this);
+        add(btnOut);
+        resultLabel = new JLabel("", JLabel.CENTER);
+        resultLabel.setBounds(20, 150, 370, 50);
+        resultLabel.setFont(new Font("Arial", Font.BOLD, 12));
+        add(resultLabel);
+        setVisible(true);
+    }
+    public void actionPerformed(ActionEvent ae) {
+        if (t1.getText().trim().isEmpty()) {
+            resultLabel.setForeground(Color.RED);
+            resultLabel.setText("Please enter a Guest ID!");
+            return;
+        }
+        try {
+            int guestId = Integer.parseInt(t1.getText().trim());
+            hotel.checkout(guestId);
+            resultLabel.setForeground(new Color(39, 174, 96));
+            resultLabel.setText("<html>Checkout completed for Guest ID: " + guestId
+                + "<br>Pushed to checkout history stack.</html>");
+            mainFrame.updateStatus("Guest " + guestId + " checked out successfully");
+            t1.setText("");
+        } catch (NumberFormatException ex) {
+            resultLabel.setForeground(Color.RED);
+            resultLabel.setText("Invalid input! Enter a numeric Guest ID.");
+        } catch (Exception ex) {
+            resultLabel.setForeground(Color.RED);
+            resultLabel.setText("Error: " + ex.getMessage());
+        }
+    }
+}
+</pre>
+
+<h2>ViewLastCheckout.java</h2>
+<pre class="code-block" data-lang="java">
+package hotelmanagementsystem;
+import javax.swing.*;
+import java.awt.*;
+public class ViewLastCheckout extends JFrame {
+    JTextArea resultArea;
+    HotelSystem hotel;
+    public ViewLastCheckout(HotelSystem hotel, MainFrame mainFrame) {
+        this.hotel = hotel;
+        setTitle("Last Checkout");
+        setSize(430, 200);
+        setLayout(null);
+        setLocationRelativeTo(mainFrame);
+        setResizable(false);
+        getContentPane().setBackground(new Color(245, 248, 250));
+        JLabel heading = new JLabel("Last Checkout (Stack.peek)", JLabel.CENTER);
+        heading.setFont(new Font("Arial", Font.BOLD, 16));
+        heading.setForeground(new Color(30, 60, 114));
+        heading.setBounds(30, 10, 360, 25);
+        add(heading);
+        resultArea = new JTextArea();
+        resultArea.setBounds(30, 50, 360, 90);
+        resultArea.setEditable(false);
+        resultArea.setFocusable(false);
+        resultArea.setFont(new Font("Arial", Font.PLAIN, 13));
+        resultArea.setBackground(new Color(236, 240, 241));
+        resultArea.setLineWrap(true);
+        resultArea.setWrapStyleWord(true);
+        add(resultArea);
+        // immediately show the last checkout details
+        String result = hotel.getLastCheckout();
+        resultArea.setText(result);
+        setVisible(true);
+    }
+}
+</pre>
+
+<h2>Room.java</h2>
+<pre class="code-block" data-lang="java">
+package hotelmanagementsystem;
+public class Room {
+    int roomId;
+    RoomType roomType;
+    double pricePerNight;
+    static int totalRooms = 0;
+    public Room(int roomId, RoomType roomType, double pricePerNight) {
+        this.roomId = roomId;
+        this.roomType = roomType;
+        this.pricePerNight = pricePerNight;
+        totalRooms++;
+    }
+    public int getRoomId() {
+        return roomId;
+    }
+    public RoomType getRoomType() {
+        return roomType;
+    }
+    public double getPricePerNight() {
+        return pricePerNight;
+    }
+    public static int getTotalRooms() {
+        return totalRooms;
+    }
+    public String toString() {
+        return "Room ID: " + roomId + " | Type: " + roomType + " | Price: Rs." + pricePerNight;
+    }
+}
+</pre>
+
+<h2>RoomType.java</h2>
+<pre class="code-block" data-lang="java">
+package hotelmanagementsystem;
+// Enum for room categories
+public enum RoomType {
+    STANDARD,
+    DELUXE,
+    SUITE,
+    PENTHOUSE
+}
+</pre>
+
+<h2>Guest.java</h2>
+<pre class="code-block" data-lang="java">
+package hotelmanagementsystem;
+public class Guest {
+    int guestId;
+    String name;
+    String contactNo;
+    public Guest(int guestId, String name, String contactNo) {
+        this.guestId = guestId;
+        this.name = name;
+        this.contactNo = contactNo;
+    }
+    public int getGuestId() {
+        return guestId;
+    }
+    public String getName() {
+        return name;
+    }
+    public String getContactNo() {
+        return contactNo;
+    }
+    public String toString() {
+        return "Guest ID: " + guestId + " | Name: " + name + " | Contact: " + contactNo;
+    }
+}
+</pre>
+
+<h2>Reservation.java</h2>
+<pre class="code-block" data-lang="java">
+package hotelmanagementsystem;
+import java.util.Calendar;
+public class Reservation {
+    int reservationId;
+    int guestId;
+    int roomId;
+    Calendar checkIn;
+    Calendar checkOut;
+    public Reservation(int reservationId, int guestId, int roomId,
+                       Calendar checkIn, Calendar checkOut) {
+        this.reservationId = reservationId;
+        this.guestId = guestId;
+        this.roomId = roomId;
+        this.checkIn = checkIn;
+        this.checkOut = checkOut;
+    }
+    public int getReservationId() {
+        return reservationId;
+    }
+    public int getGuestId() {
+        return guestId;
+    }
+    public int getRoomId() {
+        return roomId;
+    }
+    public Calendar getCheckIn() {
+        return checkIn;
+    }
+    public Calendar getCheckOut() {
+        return checkOut;
+    }
+    public String toString() {
+        return "Reservation ID: " + reservationId
+             + " | Guest ID: " + guestId
+             + " | Room ID: " + roomId
+             + " | Check-In: " + checkIn.get(Calendar.DAY_OF_MONTH) + "/" + (checkIn.get(Calendar.MONTH) + 1) + "/" + checkIn.get(Calendar.YEAR)
+             + " | Check-Out: " + checkOut.get(Calendar.DAY_OF_MONTH) + "/" + (checkOut.get(Calendar.MONTH) + 1) + "/" + checkOut.get(Calendar.YEAR);
+    }
+}
+</pre>
+
+<h2>schema.sql</h2>
+<pre class="code-block" data-lang="sql">
+CREATE TABLE rooms (
+    room_id NUMBER PRIMARY KEY,
+    room_type VARCHAR2(20),
+    price_per_night NUMBER(10,2)
+);
+CREATE TABLE guests (
+    guest_id NUMBER PRIMARY KEY,
+    name VARCHAR2(100),
+    contact_no VARCHAR2(15)
+);
+CREATE TABLE reservations (
+    reservation_id NUMBER PRIMARY KEY,
+    guest_id NUMBER REFERENCES guests(guest_id),
+    room_id NUMBER REFERENCES rooms(room_id),
+    check_in_date DATE,
+    check_out_date DATE
+);
+</pre>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var magentaKw = ['package','import','return','new','if','else','for','while','do','switch','case','break','continue','default','try','catch','finally','throw','throws'];
+    var blueKw = ['public','private','protected','class','extends','implements','interface','enum','static','final','abstract','void','int','double','boolean','long','float','byte','short','char','this','super','null','true','false'];
+    var sqlKw = ['CREATE','TABLE','PRIMARY','KEY','NUMBER','VARCHAR2','DATE','REFERENCES','NOT','NULL','INSERT','INTO','VALUES','SELECT','FROM','WHERE','AND','OR','UPDATE','DELETE','SET','DROP','ALTER','ADD'];
+
+    document.querySelectorAll('pre.code-block').forEach(function(pre) {
+        var lang = pre.getAttribute('data-lang') || 'java';
+        var code = pre.textContent;
+        var lines = code.split('\n');
+        
+        if (lines[0] && lines[0].trim() === '') lines.shift();
+        if (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
+        
+        var regex = /("(?:\\.|[^"\\])*"|\/\/.*|\b[A-Za-z_]\w*\b|\b\d+(?:\.\d+)?\b|[^\w\s])/g;
+        
+        // TRANSPARENT BACKGROUND. 
+        var html = '<table style="width: 100%; border-collapse: collapse; border: none; background-color: transparent; margin: 0; padding: 0;">';
+        var inImportOrPackage = false;
+
+        for (var i = 0; i < lines.length; i++) {
+            var line = lines[i];
+            
+            // INDENTATION
+            var indentHtml = '';
+            var pointer = 0;
+            while(pointer < line.length && line.charAt(pointer) === ' ') {
+                indentHtml += '&nbsp;';
+                pointer++;
+            }
+            
+            var lineHtml = indentHtml;
+            var remain = line.substring(pointer);
+            
+            var lastIdx = 0;
+            var m;
+            
+            while ((m = regex.exec(remain)) !== null) {
+                var space = remain.substring(lastIdx, m.index);
+                lineHtml += space.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                
+                var token = m[0];
+                var nextNonSpaceIdx = regex.lastIndex;
+                while (nextNonSpaceIdx < remain.length && /\s/.test(remain.charAt(nextNonSpaceIdx))) {
+                    nextNonSpaceIdx++;
+                }
+                var nextChar = remain.charAt(nextNonSpaceIdx);
+
+                if (token === 'package' || token === 'import') {
+                    inImportOrPackage = true;
+                }
+                if (token === ';') {
+                    inImportOrPackage = false;
+                }
+
+                // APPLY LIGHT-THEME COLORS (perfect for White backgrounds in Word)
+                if (token.startsWith('"')) {
+                    var escaped = token.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    lineHtml += '<span style="color:#a31515; font-family: \'Cambria\', serif; font-size: 10pt;">' + escaped + '</span>'; 
+                } else if (token.startsWith('//')) {
+                    var escaped = token.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    lineHtml += '<span style="color:#008000; font-family: \'Cambria\', serif; font-size: 10pt;">' + escaped + '</span>'; 
+                } else if (/^\d+(?:\.\d+)?$/.test(token)) {
+                    lineHtml += '<span style="color:#098658; font-family: \'Cambria\', serif; font-size: 10pt;">' + token + '</span>';   
+                } else if (/^[A-Za-z_]\w*$/.test(token)) {
+                    if (lang === 'sql') {
+                        if (sqlKw.includes(token.toUpperCase())) {
+                            lineHtml += '<span style="color:#0000ff; font-family: \'Cambria\', serif; font-size: 10pt;">' + token + '</span>'; 
+                        } else {
+                            lineHtml += '<span style="color:#000000; font-family: \'Cambria\', serif; font-size: 10pt;">' + token + '</span>'; 
+                        }
+                    } else {
+                        if (magentaKw.includes(token)) {
+                            lineHtml += '<span style="color:#af00db; font-family: \'Cambria\', serif; font-size: 10pt;">' + token + '</span>'; 
+                        } else if (blueKw.includes(token)) {
+                            lineHtml += '<span style="color:#0000ff; font-family: \'Cambria\', serif; font-size: 10pt;">' + token + '</span>'; 
+                        } else if (nextChar === '(') {
+                            lineHtml += '<span style="color:#795e26; font-family: \'Cambria\', serif; font-size: 10pt;">' + token + '</span>'; 
+                        } else if (/^[A-Z]/.test(token)) {
+                            lineHtml += '<span style="color:#267f99; font-family: \'Cambria\', serif; font-size: 10pt;">' + token + '</span>'; 
+                        } else {
+                            if (inImportOrPackage) {
+                                lineHtml += '<span style="color:#000000; font-family: \'Cambria\', serif; font-size: 10pt;">' + token + '</span>'; 
+                            } else {
+                                lineHtml += '<span style="color:#000000; font-family: \'Cambria\', serif; font-size: 10pt;">' + token + '</span>'; 
+                            }
+                        }
+                    }
+                } else {
+                    var escaped = token.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    lineHtml += '<span style="color:#000000; font-family: \'Cambria\', serif; font-size: 10pt;">' + escaped + '</span>';
+                }
+                lastIdx = regex.lastIndex;
+            }
+            var rest = remain.substring(lastIdx);
+            rest = rest.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            lineHtml += '<span style="color:#000000; font-family: \'Cambria\', serif; font-size: 10pt;">' + rest + '</span>';
+            
+            // Build the row - NO BACKGROUNDS anywhere
+            html += '<tr style="border: none; background-color: transparent;">';
+            // Numbers Column: Right-aligned so 9 and 10 match perfectly
+            html += '<td style="width: 35px; border: none; padding: 2px 10px 2px 5px; text-align: right; vertical-align: top; background-color: transparent;">';
+            html += '<span style="color: #858585; font-family: \'Cambria\', serif; font-size: 10pt;">' + (i + 1) + '</span>';
+            html += '</td>';
+            // Code Column: Normal text color is Black for light bg
+            html += '<td style="border: none; padding: 2px 5px 2px 0; text-align: left; vertical-align: top; word-break: break-word; background-color: transparent;">';
+            html += lineHtml;
+            html += '</td>';
+            html += '</tr>';
+        }
+        
+        html += '</table>';
+        
+        var wrapper = document.createElement('div');
+        wrapper.innerHTML = html;
+        wrapper.style.marginBottom = "30px";
+        pre.parentNode.replaceChild(wrapper, pre);
+    });
+});
+</script>
+
+</body>
+</html>
